@@ -1,0 +1,10 @@
+2026-06-07 00:10:57,702 [INFO] ==================================================
+2026-06-07 00:10:57,702 [INFO] Bot BTC/USDT 5m iniciando...
+2026-06-07 00:11:12,643 [ERROR] [Telegram] Error al enviar mensaje: 400 Client Error: Bad Request for url: https://api.telegram.org/bot8963387948:AAFT3dPT-rJ9I-hsdGsidIqQMp-HROgd1e4/sendMessage
+2026-06-07 00:11:13,932 [INFO] Filtro: precio comprimido contra MA, señal ignorada.
+2026-06-07 00:11:44,622 [INFO] Filtro: precio comprimido contra MA, señal ignorada.
+2026-06-07 00:12:15,868 [INFO] Filtro: precio comprimido contra MA, señal ignorada.
+2026-06-07 00:12:46,565 [INFO] Filtro: precio comprimido contra MA, señal ignorada.
+2026-06-07 00:13:17,224 [INFO] Filtro: precio comprimido contra MA, señal ignorada.
+2026-06-07 00:13:47,910 [INFO] Filtro: precio comprimido contra MA, señal ignorada.
+2026-06-07 00:14:18,603 [INFO] Filtro: precio comprimido contra MA, señal ignorada.
