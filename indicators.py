@@ -125,7 +125,7 @@ def rsi_leaving_extreme(rsi: pd.Series, lookback: int = 3) -> dict:
 
 # ── Filtro: compresión contra la MA ─────────────────────────
 def is_compressed_against_ma(df: pd.DataFrame, ma: pd.Series,
-                              lookback: int = 4, threshold: float = 0.012) -> bool:
+                              lookback: int = 3, threshold: float = 0.02) -> bool:
     """
     Retorna True solo si el precio lleva TODAS las últimas `lookback` velas
     pegado a la MA dentro del threshold. Umbral más alto = menos restrictivo.
