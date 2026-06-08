@@ -105,9 +105,9 @@ def run_cycle():
     )
 
     # 6. Filtro de compresión (más permisivo ahora)
-    if is_compressed_against_ma(df_closed, ma_closed):
-        logger.info("Filtro: precio comprimido contra MA, señal ignorada.")
-        return
+    #if is_compressed_against_ma(df_closed, ma_closed):
+       # logger.info("Filtro: precio comprimido contra MA, señal ignorada.")
+      #  return
 
     # 7. Filtro RSI sin direccionalidad (más permisivo ahora)
     if rsi_losing_direction(rsi_closed):
