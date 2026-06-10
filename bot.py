@@ -54,11 +54,14 @@ class BotState:
         self.div_alerted        = False
 
 
-state = BotState()
+state        = BotState()
+last_trend_1h = None   # para detectar cambios de tendencia
 
 
 # ── Lógica principal por ciclo ────────────────────────────────
 def run_cycle():
+    global last_trend_1h
+
     # 1. Obtener datos 5m y 1H
     raw_5m = get_klines(symbol=SYMBOL, interval=TIMEFRAME, limit=200)
     raw_1h = get_klines(symbol=SYMBOL, interval=TF_TREND,  limit=100)
@@ -70,9 +73,21 @@ def run_cycle():
     df_5m = klines_to_df(raw_5m)
     df_1h = klines_to_df(raw_1h)
 
-    # 2. Tendencia en 1H — filtra dirección de las operativas
+    # 2. Tendencia en 1H
     trend_1h = get_trend_1h(df_1h)
     logger.info(f"Tendencia 1H: {trend_1h}")
+
+    # 2b. Alerta si la tendencia cambió
+    if last_trend_1h is not None and trend_1h != last_trend_1h:
+        icon = "🟢" if trend_1h == "bullish" else ("🔴" if trend_1h == "bearish" else "⚪️")
+        send_telegram(
+            f"{icon} <b>Cambio de tendencia 1H – {SYMBOL}</b>\n\n"
+            f"Anterior: <b>{last_trend_1h.upper()}</b>\n"
+            f"Nueva: <b>{trend_1h.upper()}</b>\n\n"
+            f"{'🔍 Buscar LONGS en 5m' if trend_1h == 'bullish' else ('🔍 Buscar SHORTS en 5m' if trend_1h == 'bearish' else '⚠️ Sin tendencia clara, cautela.')}"
+        )
+        logger.info(f"Cambio de tendencia 1H: {last_trend_1h} → {trend_1h}")
+    last_trend_1h = trend_1h
 
     # 3. Si hay posición abierta → gestionar
     if state.in_trade:
@@ -104,12 +119,7 @@ def run_cycle():
         f"RSI_oversold={rsi_extreme['from_oversold']} RSI_overbought={rsi_extreme['from_overbought']}"
     )
 
-    # 6. Filtro de compresión (más permisivo ahora)
-    #if is_compressed_against_ma(df_closed, ma_closed):
-       # logger.info("Filtro: precio comprimido contra MA, señal ignorada.")
-      #  return
-
-    # 7. Filtro RSI sin direccionalidad (más permisivo ahora)
+    # 6. Filtro RSI sin direccionalidad
     if rsi_losing_direction(rsi_closed):
         logger.info("Filtro: RSI pierde direccionalidad, señal ignorada.")
         return
@@ -118,10 +128,9 @@ def run_cycle():
     if candle_id == state.last_signal_candle:
         return
 
-    # 8. SEÑAL LONG
-    # Condición: tendencia 1H alcista + pivote bajo reciente +
-    #            precio cierra SOBRE la MA + RSI sale de oversold
-    if (trend_1h in ("bullish", "neutral")          # a favor o sin tendencia clara
+    # 7. SEÑAL LONG
+    # Tendencia 1H bullish o neutral + pivote bajo + precio sobre MA + RSI sale oversold
+    if (trend_1h in ("bullish", "neutral")
             and last_pivot_low is not None
             and _recent_pivot(pivot_lows)
             and close_prev > ma_prev
@@ -129,7 +138,7 @@ def run_cycle():
 
         entry = close_prev
         risk  = entry - last_pivot_low
-        if risk <= 0 or risk > entry * 0.05:        # descarta riesgo negativo o >5%
+        if risk <= 0 or risk > entry * 0.05:
             logger.info(f"LONG: riesgo fuera de rango ({risk:.2f}), descartado.")
             return
 
@@ -140,9 +149,8 @@ def run_cycle():
         _open_trade("LONG", entry, sl, tp1, last_pivot_low, rsi_prev)
         state.last_signal_candle = candle_id
 
-    # 9. SEÑAL SHORT
-    # Condición: tendencia 1H bajista + pivote alto reciente +
-    #            precio cierra BAJO la MA + RSI sale de overbought
+    # 8. SEÑAL SHORT
+    # Tendencia 1H bearish o neutral + pivote alto + precio bajo MA + RSI sale overbought
     elif (trend_1h in ("bearish", "neutral")
             and last_pivot_high is not None
             and _recent_pivot(pivot_highs)
@@ -212,7 +220,7 @@ def _manage_open_trade(df_1h: pd.DataFrame, current_price: float):
             div_type = "BAJISTA" if state.direction == "LONG" else "ALCISTA"
             send_telegram(msg_divergence_alert(SYMBOL, div_type))
             logger.info(f"Divergencia {div_type} en 1H detectada.")
-            state.div_alerted = True  # no repetir el aviso
+            state.div_alerted = True
 
 
 def _last_pivot_price(df: pd.DataFrame, pivot_series: pd.Series,
@@ -224,7 +232,6 @@ def _last_pivot_price(df: pd.DataFrame, pivot_series: pd.Series,
 
 
 def _recent_pivot(pivot_series: pd.Series, max_candles: int = 20) -> bool:
-    """True si hay un pivote en las últimas max_candles velas."""
     recent = pivot_series.iloc[-max_candles:]
     return bool(recent.any())
 
@@ -232,7 +239,7 @@ def _recent_pivot(pivot_series: pd.Series, max_candles: int = 20) -> bool:
 # ── Entry point ───────────────────────────────────────────────
 if __name__ == "__main__":
     logger.info("=" * 50)
-    logger.info("Bot BTC/USDT 5m iniciando (v2 con tendencia 1H)...")
+    logger.info("Bot BTC/USDT 5m iniciando (v3 con alertas tendencia 1H)...")
     send_telegram(msg_startup(SYMBOL, TIMEFRAME))
 
     while True:
