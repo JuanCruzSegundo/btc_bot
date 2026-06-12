@@ -19,8 +19,8 @@ TF_TREND   = "1h"        # temporalidad de tendencia / divergencias
 # --- Indicadores ---
 MA_PERIOD  = 12          # periodo de la media móvil (ajustá al de tu indicador)
 RSI_PERIOD = 14
-RSI_OB     = 70          # overbought
-RSI_OS     = 30          # oversold
+RSI_OB     = 65          # overbought
+RSI_OS     = 35          # oversold
 
 # --- Gestión de la orden ---
 TRADE_USDT      = 100    # capital por operación en USDT
