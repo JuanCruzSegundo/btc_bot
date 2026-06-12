@@ -54,14 +54,27 @@ class BotState:
         self.div_alerted        = False
 
 
-state        = BotState()
-last_trend_1h = None   # para detectar cambios de tendencia
+state = BotState()
+TREND_FILE = "last_trend.txt"
 
 
-# ── Lógica principal por ciclo ────────────────────────────────
+def _load_last_trend() -> str | None:
+    """Lee la ultima tendencia guardada en disco."""
+    try:
+        with open(TREND_FILE, "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
+
+
+def _save_last_trend(trend: str):
+    """Guarda la tendencia actual en disco."""
+    with open(TREND_FILE, "w") as f:
+        f.write(trend)
+
+
+# ── Logica principal por ciclo ────────────────────────────────
 def run_cycle():
-    global last_trend_1h
-
     # 1. Obtener datos 5m y 1H
     raw_5m = get_klines(symbol=SYMBOL, interval=TIMEFRAME, limit=200)
     raw_1h = get_klines(symbol=SYMBOL, interval=TF_TREND,  limit=100)
@@ -74,20 +87,22 @@ def run_cycle():
     df_1h = klines_to_df(raw_1h)
 
     # 2. Tendencia en 1H
-    trend_1h = get_trend_1h(df_1h)
+    trend_1h      = get_trend_1h(df_1h)
+    last_trend_1h = _load_last_trend()
     logger.info(f"Tendencia 1H: {trend_1h}")
 
-    # 2b. Alerta si la tendencia cambió
+    # 2b. Alerta solo si la tendencia realmente cambio (persiste entre reinicios)
     if last_trend_1h is not None and trend_1h != last_trend_1h:
         icon = "🟢" if trend_1h == "bullish" else ("🔴" if trend_1h == "bearish" else "⚪️")
         send_telegram(
-            f"{icon} <b>Cambio de tendencia 1H – {SYMBOL}</b>\n\n"
+            f"{icon} <b>Cambio de tendencia 1H - {SYMBOL}</b>\n\n"
             f"Anterior: <b>{last_trend_1h.upper()}</b>\n"
             f"Nueva: <b>{trend_1h.upper()}</b>\n\n"
             f"{'🔍 Buscar LONGS en 5m' if trend_1h == 'bullish' else ('🔍 Buscar SHORTS en 5m' if trend_1h == 'bearish' else '⚠️ Sin tendencia clara, cautela.')}"
         )
-        logger.info(f"Cambio de tendencia 1H: {last_trend_1h} → {trend_1h}")
-    last_trend_1h = trend_1h
+        logger.info(f"Cambio de tendencia 1H: {last_trend_1h} -> {trend_1h}")
+
+    _save_last_trend(trend_1h)
 
     # 3. Si hay posición abierta → gestionar
     if state.in_trade:
@@ -129,12 +144,22 @@ def run_cycle():
         return
 
     # 7. SEÑAL LONG
-    # Tendencia 1H bullish o neutral + pivote bajo + precio sobre MA + RSI sale oversold
-    if (trend_1h in ("bullish", "neutral")
-            and last_pivot_low is not None
-            and _recent_pivot(pivot_lows)
-            and close_prev > ma_prev
-            and rsi_extreme["from_oversold"]):
+    cond_trend_long   = trend_1h in ("bullish", "neutral")
+    cond_pivot_low    = last_pivot_low is not None
+    cond_recent_low   = _recent_pivot(pivot_lows)
+    cond_precio_long  = close_prev > ma_prev
+    cond_rsi_long     = rsi_extreme["from_oversold"]
+
+    logger.info(
+        f"LONG check → tendencia={cond_trend_long}({trend_1h}) "
+        f"pivot_low={cond_pivot_low}({last_pivot_low}) "
+        f"pivot_reciente={cond_recent_low} "
+        f"precio>MA={cond_precio_long}({close_prev:.0f}>{ma_prev:.0f}) "
+        f"rsi_oversold={cond_rsi_long}"
+    )
+
+    if (cond_trend_long and cond_pivot_low and cond_recent_low
+            and cond_precio_long and cond_rsi_long):
 
         entry = close_prev
         risk  = entry - last_pivot_low
@@ -145,33 +170,44 @@ def run_cycle():
         sl  = last_pivot_low * 0.999
         tp1 = entry + risk * TP_RATIO
 
-        logger.info(f"🟢 SEÑAL LONG | Entry={entry:.2f} SL={sl:.2f} TP1={tp1:.2f} | Tendencia 1H={trend_1h}")
+        logger.info(f"SENAL LONG | Entry={entry:.2f} SL={sl:.2f} TP1={tp1:.2f} | Tendencia 1H={trend_1h}")
         _open_trade("LONG", entry, sl, tp1, last_pivot_low, rsi_prev)
         state.last_signal_candle = candle_id
 
-    # 8. SEÑAL SHORT
-    # Tendencia 1H bearish o neutral + pivote alto + precio bajo MA + RSI sale overbought
-    elif (trend_1h in ("bearish", "neutral")
-            and last_pivot_high is not None
-            and _recent_pivot(pivot_highs)
-            and close_prev < ma_prev
-            and rsi_extreme["from_overbought"]):
-
-        entry = close_prev
-        risk  = last_pivot_high - entry
-        if risk <= 0 or risk > entry * 0.05:
-            logger.info(f"SHORT: riesgo fuera de rango ({risk:.2f}), descartado.")
-            return
-
-        sl  = last_pivot_high * 1.001
-        tp1 = entry - risk * TP_RATIO
-
-        logger.info(f"🔴 SEÑAL SHORT | Entry={entry:.2f} SL={sl:.2f} TP1={tp1:.2f} | Tendencia 1H={trend_1h}")
-        _open_trade("SHORT", entry, sl, tp1, last_pivot_high, rsi_prev)
-        state.last_signal_candle = candle_id
-
     else:
-        logger.info("Sin señal en este ciclo.")
+        # 8. SEÑAL SHORT
+        cond_trend_short  = trend_1h in ("bearish", "neutral")
+        cond_pivot_high   = last_pivot_high is not None
+        cond_recent_high  = _recent_pivot(pivot_highs)
+        cond_precio_short = close_prev < ma_prev
+        cond_rsi_short    = rsi_extreme["from_overbought"]
+
+        logger.info(
+            f"SHORT check → tendencia={cond_trend_short}({trend_1h}) "
+            f"pivot_high={cond_pivot_high}({last_pivot_high}) "
+            f"pivot_reciente={cond_recent_high} "
+            f"precio<MA={cond_precio_short}({close_prev:.0f}<{ma_prev:.0f}) "
+            f"rsi_overbought={cond_rsi_short}"
+        )
+
+        if (cond_trend_short and cond_pivot_high and cond_recent_high
+                and cond_precio_short and cond_rsi_short):
+
+            entry = close_prev
+            risk  = last_pivot_high - entry
+            if risk <= 0 or risk > entry * 0.05:
+                logger.info(f"SHORT: riesgo fuera de rango ({risk:.2f}), descartado.")
+                return
+
+            sl  = last_pivot_high * 1.001
+            tp1 = entry - risk * TP_RATIO
+
+            logger.info(f"SENAL SHORT | Entry={entry:.2f} SL={sl:.2f} TP1={tp1:.2f} | Tendencia 1H={trend_1h}")
+            _open_trade("SHORT", entry, sl, tp1, last_pivot_high, rsi_prev)
+            state.last_signal_candle = candle_id
+
+        else:
+            logger.info("Sin señal en este ciclo.")
 
 
 # ── Helpers internos ──────────────────────────────────────────
