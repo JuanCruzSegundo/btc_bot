@@ -125,7 +125,7 @@ def rsi_leaving_extreme(rsi: pd.Series, lookback: int = 3) -> dict:
 
 # ── Filtro: compresión contra la MA ─────────────────────────
 def is_compressed_against_ma(df: pd.DataFrame, ma: pd.Series,
-                              lookback: int = 3, threshold: float = 0.02) -> bool:
+                              lookback: int = 4, threshold: float = 0.012) -> bool:
     """
     Retorna True solo si el precio lleva TODAS las últimas `lookback` velas
     pegado a la MA dentro del threshold. Umbral más alto = menos restrictivo.
@@ -156,3 +156,93 @@ def rsi_losing_direction(rsi: pd.Series, lookback: int = 4,
 
     slope = np.polyfit(range(lookback), recent.values, 1)[0]
     return abs(slope) < 0.15
+
+
+# ── Detección de velas de reversión ──────────────────────────
+def detect_reversal_candle(df: pd.DataFrame, direction: str) -> bool:
+    """
+    Detecta vela de reversión en la última vela cerrada.
+    direction: "bullish" o "bearish"
+
+    Bullish: martillo (mecha inferior larga) o envolvente alcista
+    Bearish: estrella fugaz (mecha superior larga) o envolvente bajista
+    """
+    if len(df) < 2:
+        return False
+
+    o  = df["open"].iloc[-1]
+    h  = df["high"].iloc[-1]
+    l  = df["low"].iloc[-1]
+    c  = df["close"].iloc[-1]
+    body = abs(c - o)
+    candle_range = h - l
+
+    if candle_range == 0:
+        return False
+
+    if direction == "bullish":
+        # Martillo: mecha inferior > 2x el cuerpo, cuerpo en parte superior
+        lower_wick = min(o, c) - l
+        upper_wick = h - max(o, c)
+        hammer = (lower_wick >= 2 * body) and (upper_wick <= body) and (c > o)
+
+        # Envolvente alcista: vela verde que envuelve la vela roja anterior
+        prev_o = df["open"].iloc[-2]
+        prev_c = df["close"].iloc[-2]
+        engulfing = (c > o) and (prev_c < prev_o) and (c > prev_o) and (o < prev_c)
+
+        return hammer or engulfing
+
+    elif direction == "bearish":
+        # Estrella fugaz: mecha superior > 2x el cuerpo, cuerpo en parte inferior
+        upper_wick = h - max(o, c)
+        lower_wick = min(o, c) - l
+        shooting_star = (upper_wick >= 2 * body) and (lower_wick <= body) and (c < o)
+
+        # Envolvente bajista
+        prev_o = df["open"].iloc[-2]
+        prev_c = df["close"].iloc[-2]
+        engulfing = (c < o) and (prev_c > prev_o) and (c < prev_o) and (o > prev_c)
+
+        return shooting_star or engulfing
+
+    return False
+
+
+# ── Confirmación por volumen ──────────────────────────────────
+def volume_confirms(df: pd.DataFrame, lookback: int = 4) -> bool:
+    """
+    Retorna True si el volumen de la última vela es mayor
+    que el promedio de las últimas `lookback` velas anteriores.
+    """
+    if len(df) < lookback + 1:
+        return False
+
+    last_vol = df["volume"].iloc[-1]
+    avg_vol  = df["volume"].iloc[-(lookback + 1):-1].mean()
+
+    return last_vol > avg_vol
+
+
+# ── Tendencia 1H con EMA50/EMA200 ────────────────────────────
+def get_trend_1h_ema(df_1h: pd.DataFrame) -> str:
+    """
+    Tendencia basada en EMA50 y EMA200.
+    Retorna: "bullish", "bearish", "neutral"
+    """
+    if len(df_1h) < 205:
+        return "neutral"
+
+    ema50  = df_1h["close"].ewm(span=50,  adjust=False).mean()
+    ema200 = df_1h["close"].ewm(span=200, adjust=False).mean()
+
+    last_close = df_1h["close"].iloc[-1]
+    e50        = ema50.iloc[-1]
+    e200       = ema200.iloc[-1]
+
+    if last_close > e50 and e50 > e200:
+        return "bullish"
+    elif last_close < e50 and e50 < e200:
+        return "bearish"
+    else:
+        return "neutral"
