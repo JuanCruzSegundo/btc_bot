@@ -273,7 +273,7 @@ def _recent_pivot(pivot_series: pd.Series, max_candles: int = 20) -> bool:
 
 
 # ── Entry point ───────────────────────────────────────────────
-if __name__ == "__main__":
+def main_loop():
     logger.info("=" * 50)
     logger.info("Bot BTC/USDT 5m iniciando (v3 con alertas tendencia 1H)...")
     send_telegram(msg_startup(SYMBOL, TIMEFRAME))
@@ -288,3 +288,7 @@ if __name__ == "__main__":
             logger.error(f"Error inesperado: {e}", exc_info=True)
 
         time.sleep(POLL_SECONDS)
+
+
+if __name__ == "__main__":
+    main_loop()
