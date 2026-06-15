@@ -179,14 +179,15 @@ def run_cycle_1h():
         if near_ema50 or in_zone:
             # Condicion simplificada: vela verde + volumen
             vela_verde = last_close > df_closed["open"].iloc[-1]
-            vol_ok     = volume_confirms(df_closed)
+            vol_ok     = volume_confirms(df_closed, multiplier=1.5)
 
             logger.info(
                 f"LONG 1H check → trend={trend_long} near_ema50={near_ema50} "
                 f"in_zone={in_zone} vela_verde={vela_verde} volume={vol_ok}"
             )
 
-            if vela_verde and vol_ok:
+            precio_ok = last_close > last_ema50
+            if vela_verde and vol_ok and precio_ok:
                 entry = last_close
                 sl    = df_closed["low"].iloc[-10:].min() * 0.999
                 risk  = entry - sl
@@ -217,14 +218,15 @@ def run_cycle_1h():
         if near_ema50 or in_zone:
             # Condicion simplificada: vela roja + volumen
             vela_roja = last_close < df_closed["open"].iloc[-1]
-            vol_ok    = volume_confirms(df_closed)
+            vol_ok    = volume_confirms(df_closed, multiplier=1.5)
 
             logger.info(
                 f"SHORT 1H check → trend={trend_short} near_ema50={near_ema50} "
                 f"in_zone={in_zone} vela_roja={vela_roja} volume={vol_ok}"
             )
 
-            if vela_roja and vol_ok:
+            precio_ok = last_close < last_ema50
+            if vela_roja and vol_ok and precio_ok:
                 entry = last_close
                 sl    = df_closed["high"].iloc[-10:].max() * 1.001
                 risk  = sl - entry
