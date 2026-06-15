@@ -210,10 +210,11 @@ def detect_reversal_candle(df: pd.DataFrame, direction: str) -> bool:
 
 
 # ── Confirmación por volumen ──────────────────────────────────
-def volume_confirms(df: pd.DataFrame, lookback: int = 4) -> bool:
+def volume_confirms(df: pd.DataFrame, lookback: int = 4, multiplier: float = 1.5) -> bool:
     """
     Retorna True si el volumen de la última vela es mayor
-    que el promedio de las últimas `lookback` velas anteriores.
+    que el promedio de las últimas `lookback` velas anteriores
+    multiplicado por `multiplier`.
     """
     if len(df) < lookback + 1:
         return False
@@ -221,7 +222,7 @@ def volume_confirms(df: pd.DataFrame, lookback: int = 4) -> bool:
     last_vol = df["volume"].iloc[-1]
     avg_vol  = df["volume"].iloc[-(lookback + 1):-1].mean()
 
-    return last_vol > avg_vol
+    return last_vol > avg_vol * multiplier
 
 
 # ── Tendencia 1H con EMA50/EMA200 ────────────────────────────
