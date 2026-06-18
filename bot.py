@@ -89,18 +89,10 @@ def run_cycle():
     # 2. Tendencia en 1H
     trend_1h      = get_trend_1h(df_1h)
     last_trend_1h = _load_last_trend()
-    first_run = last_trend_1h is None  
     logger.info(f"Tendencia 1H: {trend_1h}")
 
-    # 2b. Alerta solo si la tendencia realmente cambio (persiste entre reinicios)
-    if last_trend_1h is not None and trend_1h != last_trend_1h and not first_run:
-        icon = "🟢" if trend_1h == "bullish" else ("🔴" if trend_1h == "bearish" else "⚪️")
-        send_telegram(
-            f"{icon} <b>Cambio de tendencia 1H - {SYMBOL}</b>\n\n"
-            f"Anterior: <b>{last_trend_1h.upper()}</b>\n"
-            f"Nueva: <b>{trend_1h.upper()}</b>\n\n"
-            f"{'🔍 Buscar LONGS en 5m' if trend_1h == 'bullish' else ('🔍 Buscar SHORTS en 5m' if trend_1h == 'bearish' else '⚠️ Sin tendencia clara, cautela.')}"
-        )
+    # 2b. Log de cambio de tendencia (sin alerta Telegram)
+    if last_trend_1h is not None and trend_1h != last_trend_1h:
         logger.info(f"Cambio de tendencia 1H: {last_trend_1h} -> {trend_1h}")
 
     _save_last_trend(trend_1h)
