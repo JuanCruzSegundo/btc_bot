@@ -3,8 +3,8 @@
 # ============================================================
 
 # --- Binance API ---
-BINANCE_API_KEY    = "TU_API_KEY_AQUI"
-BINANCE_API_SECRET = "TU_API_SECRET_AQUI"
+BINANCE_API_KEY    = "6CX9TYEZddRFBijMI2TMQCEOiCP72evlYvjeIlTsgkKRu36oeIqTjgDEdDFWyqjV"
+BINANCE_API_SECRET = "q25LGKmq70bJf1mkTP18AnPElUOwJON7o543w6u7UBHSqohMsBTa3zIHrxkaxAog"
 TESTNET            = True   # True = usa testnet, False = real
 
 # --- Telegram ---
