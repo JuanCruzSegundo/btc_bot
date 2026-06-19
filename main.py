@@ -1,9 +1,12 @@
 # ============================================================
-#  main.py  –  Arranca ambos bots en paralelo con threading
+#  main.py  –  Arranca el bot de alertas (Enfoque exclusivo 5m)
+#  CON SOPORTE DE HEALTH CHECK PARA RAILWAY
 # ============================================================
-import threading
 import logging
 import sys
+import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import bot
 
 # Configuración básica de logs en consola
@@ -16,31 +19,43 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Intentamos importar el bot de 1H de forma segura
-try:
-    import bot_1h
-except ImportError:
-    bot_1h = None
+# --- Servidor de Health Check para Railway ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, format, *args):
+        # Silenciar logs de peticiones HTTP del Health Check para no ensuciar la consola
+        return
+
+    def log_error(self, format, *args):
+        # Silenciar logs de errores de conexión rutinarios del Health Check
+        return
+
+def start_health_check_server():
+    """Levanta un servidor web básico en el puerto que pide Railway."""
+    port = int(os.environ.get("PORT", 8080))
+    try:
+        server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+        logger.info(f"⚡ Servidor de Health Check levantado con éxito en el puerto {port}")
+        server.serve_forever()
+    except Exception as e:
+        logger.error(f"Error al iniciar servidor de Health Check: {e}")
 
 if __name__ == "__main__":
-    logger.info("Iniciando hilos para bots en paralelo...")
-    threads = []
-
-    # 1. Crear e iniciar el hilo para el bot de 5m (bot.py)
-    t_5m = threading.Thread(target=bot.main_loop, name="Bot_5M")
-    threads.append(t_5m)
-    t_5m.start()
-    logger.info("-> Hilo de Bot de 5M iniciado.")
-
-    # 2. Crear e iniciar el hilo para el bot de 1H (bot_1h.py) si está disponible
-    if bot_1h and hasattr(bot_1h, "main_loop"):
-        t_1h = threading.Thread(target=bot_1h.main_loop, name="Bot_1H")
-        threads.append(t_1h)
-        t_1h.start()
-        logger.info("-> Hilo de Bot de 1H detectado e iniciado correctamente.")
-    else:
-        logger.warning("⚠️ bot_1h.py no encontrado o no contiene la funcion main_loop. Solo correra el bot de 5m.")
-
-    # Mantener el proceso principal vivo esperando a los hilos de fondo
-    for t in threads:
-        t.join()
+    logger.info("Iniciando bot de alertas de BTC en temporalidad de 5 minutos...")
+    
+    # 1. Levantar servidor en un hilo paralelo ("daemon" para que muera con el principal)
+    health_thread = threading.Thread(target=start_health_check_server, daemon=True)
+    health_thread.start()
+    
+    # 2. Iniciar el loop de análisis técnico
+    try:
+        bot.main_loop()
+    except KeyboardInterrupt:
+        logger.info("Proceso terminado por el usuario.")
+    except Exception as e:
+        logger.critical(f"Fallo crítico al iniciar el bot: {e}", exc_info=True)
