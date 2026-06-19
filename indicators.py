@@ -3,7 +3,7 @@
 # ============================================================
 import pandas as pd
 import numpy as np
-from config import MA_PERIOD, RSI_PERIOD, RSI_OB, RSI_OS, PIVOT_LOOKBACK
+from config import MA_PERIOD, RSI_PERIOD, RSI_OB, RSI_OS, PIVOT_LOOKBACK, DIVERGENCE_LOOKBACK_5M
 
 
 # ── Media Móvil ─────────────────────────────────────────────
@@ -74,10 +74,11 @@ def get_trend_1h(df_1h: pd.DataFrame) -> str:
         return "neutral"
 
 
-# ── Divergencia RSI (para alertas en 1H) ────────────────────
-def detect_rsi_divergence(df: pd.DataFrame, lookback: int = 20) -> dict:
+# ── Divergencia RSI genérica (sirve para 5m gatillo y 1H TP2) ─
+def detect_divergence(df: pd.DataFrame, lookback: int = 20) -> dict:
     """
-    Detecta divergencias simples en las últimas `lookback` velas.
+    Detecta divergencias en las últimas `lookback` velas comparadas
+    contra las `lookback` velas previas a esas.
     Divergencia alcista: precio hace mínimo más bajo, RSI hace mínimo más alto.
     Divergencia bajista: precio hace máximo más alto, RSI hace máximo más bajo.
     """
@@ -100,6 +101,12 @@ def detect_rsi_divergence(df: pd.DataFrame, lookback: int = 20) -> dict:
         result["bearish"] = True
 
     return result
+
+
+# ── Divergencia RSI (alias retrocompatible, usado para 1H) ──
+def detect_rsi_divergence(df: pd.DataFrame, lookback: int = 20) -> dict:
+    """Alias de detect_divergence, mantenido por compatibilidad."""
+    return detect_divergence(df, lookback)
 
 
 # ── RSI saliendo de zona extrema ─────────────────────────────
