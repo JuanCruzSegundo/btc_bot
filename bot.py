@@ -1,5 +1,5 @@
 # ============================================================
-#  bot.py  –  Detector de señales 5m → Alerta Telegram
+#  bot.py  –  Detector de señales 5m → Alerta Telegram (FIXED)
 #  MODO: Solo alertas. Vos entrás manualmente.
 # ============================================================
 import time
@@ -63,7 +63,7 @@ def _check_pending_signal(df: pd.DataFrame):
     """
     Revisa si la señal pendiente fue testeada por el precio, o si
     ya se debe cancelar porque el precio llegó al TP sin volver a tocar
-    la entrada.
+    la entrada (el trade ya se completó).
     """
     global pending_signal
     if pending_signal is None:
@@ -75,7 +75,7 @@ def _check_pending_signal(df: pd.DataFrame):
     entry     = pending_signal["entry"]
     tp1       = pending_signal["tp1"]
 
-    # ¿el precio volvió a testear la entrada?
+    # ¿El precio volvió a testear el nivel exacto de la orden limit?
     tested = (last_low <= entry <= last_high)
     if tested:
         logger.info(f"✅ Señal {direction} TESTEADA en {entry:.2f}. Asumimos entrada ejecutada.")
@@ -84,13 +84,13 @@ def _check_pending_signal(df: pd.DataFrame):
 
     pending_signal["candles_waited"] += 1
 
-    # ¿ya llegó al TP sin testear la entrada? → cancelar
-    reached_tp = (last_low <= tp1 <= last_high) if direction == "SHORT" else (last_low <= tp1 <= last_high)
+    # Evaluar si ya llegó a tocar el TP sin habernos testeado antes
     if direction == "LONG":
         reached_tp = last_high >= tp1
     else:
         reached_tp = last_low <= tp1
 
+    # Cancelar operativa si se completó el recorrido o excedió el tiempo límite de espera
     if reached_tp or pending_signal["candles_waited"] >= MAX_CANDLES_TO_TEST_ENTRY:
         logger.info(f"❌ Señal {direction} CANCELADA: no testeó entrada ({entry:.2f}) "
                      f"en {pending_signal['candles_waited']} velas.")
@@ -117,7 +117,7 @@ def run_cycle():
     trend_1h = get_trend_1h(df_1h)
     logger.info(f"Tendencia 1H: {trend_1h}")
 
-    # 3. Trabajar solo con velas cerradas (excluir la última que está formándose)
+    # 3. Trabajar solo con velas cerradas (excluir la última en formación)
     df = df_5m.iloc[:-1]
     ma  = calculate_ma(df)
     rsi = calculate_rsi(df)
@@ -126,20 +126,27 @@ def run_cycle():
     ma_last    = ma.iloc[-1]
     rsi_last   = rsi.iloc[-1]
 
-    pivot_highs    = detect_pivot_high(df)
-    pivot_lows     = detect_pivot_low(df)
-    last_piv_high  = _last_pivot_price(df, pivot_highs, "high")
-    last_piv_low   = _last_pivot_price(df, pivot_lows,  "low")
-    rsi_extreme    = rsi_leaving_extreme(rsi)
-    divergence_5m  = detect_divergence(df, lookback=DIVERGENCE_LOOKBACK_5M)
+    # --- Lógica de Colores del Indicador Pupu ---
+    # El video asocia Pivote Rojo a LONGs y Pivote Verde a SHORTs.
+    # Mapeamos funcionalmente:
+    # - Pivot Low (Mínimos) actúa como Pivote Rojo para compras.
+    # - Pivot High (Máximos) actúa como Pivote Verde para ventas.
+    pivot_red_longs   = detect_pivot_low(df, n=PIVOT_LOOKBACK)   
+    pivot_green_shorts = detect_pivot_high(df, n=PIVOT_LOOKBACK) 
+    
+    last_piv_red   = _last_pivot_price(df, pivot_red_longs,  "low")
+    last_piv_green = _last_pivot_price(df, pivot_green_shorts, "high")
+    
+    rsi_extreme   = rsi_leaving_extreme(rsi)
+    divergence_5m = detect_divergence(df, lookback=DIVERGENCE_LOOKBACK_5M)
 
-    # 4. Revisar si hay señal pendiente de testeo (orden limit colocada)
-    _check_pending_signal(df)
+    # 4. Revisar si hay señal pendiente de testeo (orden limit en juego)
+    _check_pending_signal(df_5m)  # Evaluamos sobre el DF completo para ver tiempo real
 
-    # 5. Log de estado
+    # 5. Log de estado técnico
     logger.info(
         f"Precio={close_last:.2f} | MA={ma_last:.2f} | RSI={rsi_last:.1f} | "
-        f"PivHigh={last_piv_high} | PivLow={last_piv_low} | "
+        f"PivRojo(L)={last_piv_red} | PivVerde(S)={last_piv_green} | "
         f"RSI_OS={rsi_extreme['from_oversold']} | RSI_OB={rsi_extreme['from_overbought']} | "
         f"DivBull={divergence_5m['bullish']} | DivBear={divergence_5m['bearish']}"
     )
@@ -149,66 +156,70 @@ def run_cycle():
         logger.info("Filtro: RSI pierde direccionalidad → señal ignorada.")
         return
 
-    # 7. Evitar señal duplicada en la misma vela, o si ya hay una pendiente
+    # 7. Evitar señal duplicada en la misma vela, o si ya hay una pendiente de ejecución
     candle_id = df.index[-1]
     if candle_id == last_signal_candle or pending_signal is not None:
         return
 
     # ── SEÑAL LONG ───────────────────────────────────────────
-    cond_trend  = trend_1h in ("bullish", "neutral")
-    cond_pivlow = last_piv_low is not None and _recent_pivot(pivot_lows)
-    cond_precio = close_last > ma_last        # precio cerró ENCIMA de la MA
+    cond_trend       = trend_1h in ("bullish", "neutral")
+    cond_pivot_red   = last_piv_red is not None and _recent_pivot(pivot_red_longs)
+    cond_precio_long = close_last > ma_last        # Cierra por encima de la MA12
     cond_rsi_extreme = rsi_extreme["from_oversold"]
-    cond_rsi_div      = divergence_5m["bullish"]
-    cond_rsi    = cond_rsi_extreme or cond_rsi_div   # zona extrema O divergencia
+    cond_rsi_div     = divergence_5m["bullish"]
+    cond_rsi_long    = cond_rsi_extreme or cond_rsi_div   # ZONA EXTREMA O DIVERGENCIA
 
     logger.info(
         f"LONG → tendencia={cond_trend}({trend_1h}) | "
-        f"pivot_low={cond_pivlow}({last_piv_low}) | "
-        f"precio>MA={cond_precio} | rsi_OS={cond_rsi_extreme} | rsi_div={cond_rsi_div}"
+        f"pivote_rojo={cond_pivot_red}({last_piv_red}) | "
+        f"precio>MA={cond_precio_long} | rsi_OS={cond_rsi_extreme} | rsi_div={cond_rsi_div}"
     )
 
-    if cond_trend and cond_pivlow and cond_precio and cond_rsi:
-        risk = close_last - last_piv_low
+    if cond_trend and cond_pivot_red and cond_precio_long and cond_rsi_long:
+        risk = close_last - last_piv_red
         if risk <= 0 or risk > close_last * 0.05:
             logger.info(f"LONG descartado: riesgo fuera de rango ({risk:.2f})")
         else:
-            sl  = last_piv_low * 0.999
+            sl  = last_piv_red * 0.999
             tp1 = close_last + risk * TP_RATIO
             trigger = "divergencia alcista" if cond_rsi_div else "zona extrema (sobreventa)"
+            
             logger.info(f"✅ SEÑAL LONG | Entry={close_last:.2f} SL={sl:.2f} TP1={tp1:.2f} | Trigger={trigger}")
-            send_telegram(msg_signal("LONG", SYMBOL, close_last, sl, tp1, last_piv_low,
+            send_telegram(msg_signal("LONG", SYMBOL, close_last, sl, tp1, last_piv_red,
                                       rsi_last, has_divergence=cond_rsi_div, trigger=trigger))
+            
             last_signal_candle = candle_id
             pending_signal = {"direction": "LONG", "entry": close_last, "sl": sl,
                                "tp1": tp1, "candle_id": candle_id, "candles_waited": 0}
             return
 
     # ── SEÑAL SHORT ──────────────────────────────────────────
-    cond_trend  = trend_1h in ("bearish", "neutral")
-    cond_pivhigh = last_piv_high is not None and _recent_pivot(pivot_highs)
-    cond_precio = close_last < ma_last        # precio cerró DEBAJO de la MA
-    cond_rsi_extreme = rsi_extreme["from_overbought"]
+    cond_trend        = trend_1h in ("bearish", "neutral")
+    cond_pivot_green  = last_piv_green is not None and _recent_pivot(pivot_green_shorts)
+    cond_precio_short = close_last < ma_last        # Cierra por debajo de la MA12
+    cond_rsi_extreme  = rsi_extreme["from_overbought"]
     cond_rsi_div      = divergence_5m["bearish"]
-    cond_rsi    = cond_rsi_extreme or cond_rsi_div   # zona extrema O divergencia
+    cond_rsi_short    = cond_rsi_extreme or cond_rsi_div   # ZONA EXTREMA O DIVERGENCIA
 
     logger.info(
         f"SHORT → tendencia={cond_trend}({trend_1h}) | "
-        f"pivot_high={cond_pivhigh}({last_piv_high}) | "
-        f"precio<MA={cond_precio} | rsi_OB={cond_rsi_extreme} | rsi_div={cond_rsi_div}"
+        f"pivote_verde={cond_pivot_green}({last_piv_green}) | "
+        f"precio<MA={cond_precio_short} | rsi_OB={cond_rsi_extreme} | rsi_div={cond_rsi_div}"
     )
 
-    if cond_trend and cond_pivhigh and cond_precio and cond_rsi:
-        risk = last_piv_high - close_last
+    if cond_trend and cond_pivot_green and cond_precio_short and cond_rsi_short:
+        risk = last_piv_green - close_last
         if risk <= 0 or risk > close_last * 0.05:
             logger.info(f"SHORT descartado: riesgo fuera de rango ({risk:.2f})")
         else:
-            sl  = last_piv_high * 1.001
+            sl  = last_piv_green * 1.001
             tp1 = close_last - risk * TP_RATIO
             trigger = "divergencia bajista" if cond_rsi_div else "zona extrema (sobrecompra)"
+            
             logger.info(f"✅ SEÑAL SHORT | Entry={close_last:.2f} SL={sl:.2f} TP1={tp1:.2f} | Trigger={trigger}")
-            send_telegram(msg_signal("SHORT", SYMBOL, close_last, sl, tp1, last_piv_high,
+            send_telegram(msg_signal("SHORT", SYMBOL, close_last, sl, tp1, last_piv_green,
                                       rsi_last, has_divergence=cond_rsi_div, trigger=trigger))
+            
             last_signal_candle = candle_id
             pending_signal = {"direction": "SHORT", "entry": close_last, "sl": sl,
                                "tp1": tp1, "candle_id": candle_id, "candles_waited": 0}
@@ -220,7 +231,7 @@ def run_cycle():
 # ── Entry point ──────────────────────────────────────────────
 def main_loop():
     logger.info("=" * 50)
-    logger.info("Bot BTC/USDT 5m — Modo ALERTAS iniciado")
+    logger.info("Bot BTC/USDT 5m — Modo ALERTAS con filtros corregidos activo")
     send_telegram(msg_startup(SYMBOL, TIMEFRAME))
 
     while True:
