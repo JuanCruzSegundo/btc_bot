@@ -25,7 +25,7 @@ RSI_OS     = 40          # oversold
 # --- Gestión de la orden ---
 TRADE_USDT      = 100    # capital por operación en USDT
 LEVERAGE        = 5      # apalancamiento (futures)
-TP_RATIO        = 1.17   # ratio riesgo/beneficio para el 1er TP (según video: 1,17 no 1,7)
+TP_RATIO        = 1.7    # ratio riesgo/beneficio para el 1er TP (restablecido a 1.7 de tu testnet)
 PARTIAL_CLOSE   = 0.75   # porcentaje que se cierra en el 1er TP (75 %)
 
 # --- Pivot detection ---
