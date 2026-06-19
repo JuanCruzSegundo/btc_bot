@@ -28,18 +28,31 @@ def send_telegram(message: str) -> bool:
 # ── Plantillas de mensajes ───────────────────────────────────
 
 def msg_signal(direction: str, symbol: str, entry: float,
-               sl: float, tp1: float, pivot_price: float, rsi_val: float) -> str:
-    icon   = "🟢" if direction == "LONG" else "🔴"
-    sl_dir = "encima" if direction == "SHORT" else "debajo"
+               sl: float, tp1: float, pivot_price: float, rsi_val: float,
+               has_divergence: bool = False, trigger: str = "zona extrema") -> str:
+    icon      = "🟢" if direction == "LONG" else "🔴"
+    sl_dir    = "encima" if direction == "SHORT" else "debajo"
+    riesgo    = "🔥 RIESGO COMPLETO (hay divergencia)" if has_divergence else "⚖️ MITAD DE RIESGO (sin divergencia)"
     return (
         f"{icon} <b>SEÑAL {direction} – {symbol}</b>\n\n"
         f"📌 <b>Entrada (limit):</b> {entry:.2f} USDT\n"
         f"🛑 <b>Stop Loss ({sl_dir} del pivote):</b> {sl:.2f} USDT\n"
-        f"🎯 <b>TP1 (75% – ratio 1.7):</b> {tp1:.2f} USDT\n\n"
+        f"🎯 <b>TP1 (75% – ratio 1.17):</b> {tp1:.2f} USDT\n\n"
         f"📊 Pivote detectado en: {pivot_price:.2f}\n"
-        f"📉 RSI actual: {rsi_val:.1f}\n\n"
+        f"📉 RSI actual: {rsi_val:.1f}\n"
+        f"🔎 Gatillo: {trigger}\n"
+        f"{riesgo}\n\n"
         f"⚠️ <i>Orden limit colocada. El precio debe volver a testear la zona.</i>\n"
-        f"👁 Revisá divergencias en 1H para el cierre final."
+        f"👁 Revisá divergencias en 1H para el cierre final del 25% restante."
+    )
+
+
+def msg_signal_cancelled(direction: str, symbol: str, entry: float, candles_waited: int) -> str:
+    return (
+        f"❌ <b>Señal {direction} CANCELADA – {symbol}</b>\n\n"
+        f"La orden limit en {entry:.2f} USDT no fue testeada en {candles_waited} velas\n"
+        f"y el precio ya alcanzó la zona de TP sin retroceder.\n"
+        f"El recorrido de la operativa ya se completó sin nosotros adentro."
     )
 
 
