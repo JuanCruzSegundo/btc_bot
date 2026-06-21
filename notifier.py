@@ -3,7 +3,7 @@
 # ============================================================
 import requests
 import logging
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TP_RATIO
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def msg_signal(direction: str, symbol: str, entry: float,
         f"{icon} <b>SEÑAL {direction} – {symbol}</b>\n\n"
         f"📌 <b>Entrada (limit):</b> {entry:.2f} USDT\n"
         f"🛑 <b>Stop Loss ({sl_dir} del pivote):</b> {sl:.2f} USDT\n"
-        f"🎯 <b>TP1 (75% – ratio 1.17):</b> {tp1:.2f} USDT\n\n"
+        f"🎯 <b>TP1 (75% – ratio {TP_RATIO}):</b> {tp1:.2f} USDT\n\n"
         f"📊 Pivote detectado en: {pivot_price:.2f}\n"
         f"📉 RSI actual: {rsi_val:.1f}\n"
         f"🔎 Gatillo: {trigger}\n"
