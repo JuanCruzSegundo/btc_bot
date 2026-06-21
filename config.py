@@ -3,13 +3,13 @@
 # ============================================================
 
 # --- Binance API ---
-BINANCE_API_KEY    = "TU_API_KEY_AQUI"
-BINANCE_API_SECRET = "TU_API_SECRET_AQUI"
+BINANCE_API_KEY    = "6CX9TYEZddRFBijMI2TMQCEOiCP72evlYvjeIlTsgkKRu36oeIqTjgDEdDFWyqjV"
+BINANCE_API_SECRET = "q25LGKmq70bJf1mkTP18AnPElUOwJON7o543w6u7UBHSqohMsBTa3zIHrxkaxAog"
 TESTNET            = True   # True = usa testnet, False = real
 
 # --- Telegram ---
-TELEGRAM_BOT_TOKEN = "TU_TOKEN_BOT_AQUI"
-TELEGRAM_CHAT_ID   = "TU_CHAT_ID_AQUI"
+TELEGRAM_BOT_TOKEN = "8963387948:AAFT3dPT-rJ9I-hsdGsidIqQMp-HROgd1e4"
+TELEGRAM_CHAT_ID   = "5309144694"
 
 # --- Instrumento ---
 SYMBOL     = "BTCUSDT"
@@ -25,7 +25,7 @@ RSI_OS     = 40          # oversold
 # --- Gestión de la orden ---
 TRADE_USDT      = 100    # capital por operación en USDT
 LEVERAGE        = 5      # apalancamiento (futures)
-TP_RATIO        = 1.17   # ratio riesgo/beneficio para el 1er TP (según video: 1,17 no 1,7)
+TP_RATIO        = 1.7    # ratio riesgo/beneficio para el 1er TP (1:1.7, confirmado por el usuario)
 PARTIAL_CLOSE   = 0.75   # porcentaje que se cierra en el 1er TP (75 %)
 
 # --- Pivot detection ---
