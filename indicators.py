@@ -46,16 +46,7 @@ def detect_pivot_low(df: pd.DataFrame, n: int = PIVOT_LOOKBACK) -> pd.Series:
 
 # ── Tendencia en 1H ──────────────────────────────────────────
 def get_trend_1h(df_1h: pd.DataFrame) -> str:
-    """
-    Determina la tendencia del gráfico horario.
-    Retorna: "bullish", "bearish", o "neutral"
-
-    Lógica:
-    - Calcula EMA rápida (20) y lenta (50) en 1H
-    - Si precio > EMA20 > EMA50 → tendencia alcista
-    - Si precio < EMA20 < EMA50 → tendencia bajista
-    - Caso contrario → neutral (no operar)
-    """
+    """Determina la tendencia del gráfico horario."""
     if len(df_1h) < 55:
         return "neutral"
 
@@ -74,14 +65,9 @@ def get_trend_1h(df_1h: pd.DataFrame) -> str:
         return "neutral"
 
 
-# ── Divergencia RSI genérica (sirve para 5m gatillo y 1H TP2) ─
+# ── Divergencia RSI genérica ─────────────────────────────────
 def detect_divergence(df: pd.DataFrame, lookback: int = 20) -> dict:
-    """
-    Detecta divergencias en las últimas `lookback` velas comparadas
-    contra las `lookback` velas previas a esas.
-    Divergencia alcista: precio hace mínimo más bajo, RSI hace mínimo más alto.
-    Divergencia bajista: precio hace máximo más alto, RSI hace máximo más bajo.
-    """
+    """Detecta divergencias en el RSI en base al precio."""
     rsi    = calculate_rsi(df)
     closes = df["close"]
     result = {"bullish": False, "bearish": False}
@@ -103,17 +89,15 @@ def detect_divergence(df: pd.DataFrame, lookback: int = 20) -> dict:
     return result
 
 
-# ── Divergencia RSI (alias retrocompatible, usado para 1H) ──
 def detect_rsi_divergence(df: pd.DataFrame, lookback: int = 20) -> dict:
-    """Alias de detect_divergence, mantenido por compatibilidad."""
     return detect_divergence(df, lookback)
 
 
-# ── RSI saliendo de zona extrema ─────────────────────────────
-def rsi_leaving_extreme(rsi: pd.Series, lookback: int = 3) -> dict:
+# ── RSI saliendo de zona extrema (FIXED) ─────────────────────
+def rsi_leaving_extreme(rsi: pd.Series, lookback: int = 2) -> dict:
     """
-    Detecta si el RSI estuvo en zona extrema en las últimas `lookback` velas
-    y ahora está saliendo. Más flexible que solo mirar 1 vela atrás.
+    Detecta si el RSI estuvo por debajo de 30 o por encima de 70 
+    en las últimas 2 velas y ahora regresó a la zona neutral.
     """
     if len(rsi) < lookback + 1:
         return {"from_oversold": False, "from_overbought": False}
@@ -130,13 +114,9 @@ def rsi_leaving_extreme(rsi: pd.Series, lookback: int = 3) -> dict:
     }
 
 
-# ── Filtro: compresión contra la MA ─────────────────────────
+# ── Filtros Secundarios ──────────────────────────────────────
 def is_compressed_against_ma(df: pd.DataFrame, ma: pd.Series,
                               lookback: int = 4, threshold: float = 0.012) -> bool:
-    """
-    Retorna True solo si el precio lleva TODAS las últimas `lookback` velas
-    pegado a la MA dentro del threshold. Umbral más alto = menos restrictivo.
-    """
     if len(df) < lookback or len(ma) < lookback:
         return False
     recent_closes = df["close"].iloc[-lookback:]
@@ -145,13 +125,8 @@ def is_compressed_against_ma(df: pd.DataFrame, ma: pd.Series,
     return bool((diffs < threshold).all())
 
 
-# ── Filtro: RSI pierde direccionalidad sin llegar a extremo ──
 def rsi_losing_direction(rsi: pd.Series, lookback: int = 4,
                           extreme_margin: float = 8.0) -> bool:
-    """
-    Retorna True si el RSI lleva `lookback` velas lateral sin tocar zona extrema.
-    Umbral de pendiente más bajo = menos restrictivo.
-    """
     if len(rsi) < lookback:
         return False
 
@@ -165,15 +140,7 @@ def rsi_losing_direction(rsi: pd.Series, lookback: int = 4,
     return abs(slope) < 0.15
 
 
-# ── Detección de velas de reversión ──────────────────────────
 def detect_reversal_candle(df: pd.DataFrame, direction: str) -> bool:
-    """
-    Detecta vela de reversión en la última vela cerrada.
-    direction: "bullish" o "bearish"
-
-    Bullish: martillo (mecha inferior larga) o envolvente alcista
-    Bearish: estrella fugaz (mecha superior larga) o envolvente bajista
-    """
     if len(df) < 2:
         return False
 
@@ -188,12 +155,10 @@ def detect_reversal_candle(df: pd.DataFrame, direction: str) -> bool:
         return False
 
     if direction == "bullish":
-        # Martillo: mecha inferior > 2x el cuerpo, cuerpo en parte superior
         lower_wick = min(o, c) - l
         upper_wick = h - max(o, c)
         hammer = (lower_wick >= 2 * body) and (upper_wick <= body) and (c > o)
 
-        # Envolvente alcista: vela verde que envuelve la vela roja anterior
         prev_o = df["open"].iloc[-2]
         prev_c = df["close"].iloc[-2]
         engulfing = (c > o) and (prev_c < prev_o) and (c > prev_o) and (o < prev_c)
@@ -201,12 +166,10 @@ def detect_reversal_candle(df: pd.DataFrame, direction: str) -> bool:
         return hammer or engulfing
 
     elif direction == "bearish":
-        # Estrella fugaz: mecha superior > 2x el cuerpo, cuerpo en parte inferior
         upper_wick = h - max(o, c)
         lower_wick = min(o, c) - l
         shooting_star = (upper_wick >= 2 * body) and (lower_wick <= body) and (c < o)
 
-        # Envolvente bajista
         prev_o = df["open"].iloc[-2]
         prev_c = df["close"].iloc[-2]
         engulfing = (c < o) and (prev_c > prev_o) and (c < prev_o) and (o > prev_c)
@@ -216,13 +179,7 @@ def detect_reversal_candle(df: pd.DataFrame, direction: str) -> bool:
     return False
 
 
-# ── Confirmación por volumen ──────────────────────────────────
 def volume_confirms(df: pd.DataFrame, lookback: int = 4, multiplier: float = 1.5) -> bool:
-    """
-    Retorna True si el volumen de la última vela es mayor
-    que el promedio de las últimas `lookback` velas anteriores
-    multiplicado por `multiplier`.
-    """
     if len(df) < lookback + 1:
         return False
 
@@ -232,12 +189,7 @@ def volume_confirms(df: pd.DataFrame, lookback: int = 4, multiplier: float = 1.5
     return last_vol > avg_vol * multiplier
 
 
-# ── Tendencia 1H con EMA50/EMA200 ────────────────────────────
 def get_trend_1h_ema(df_1h: pd.DataFrame) -> str:
-    """
-    Tendencia basada en EMA50 y EMA200.
-    Retorna: "bullish", "bearish", "neutral"
-    """
     if len(df_1h) < 205:
         return "neutral"
 
