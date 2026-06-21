@@ -7,11 +7,12 @@ import logging
 import pandas as pd
 from config import (SYMBOL, TIMEFRAME, TF_TREND, POLL_SECONDS,
                     PIVOT_LOOKBACK, TP_RATIO, RSI_OB, RSI_OS,
-                    DIVERGENCE_LOOKBACK_5M, MAX_CANDLES_TO_TEST_ENTRY)
+                    DIVERGENCE_LOOKBACK_5M, MAX_CANDLES_TO_TEST_ENTRY,
+                    VOLUME_MULTIPLIER, VOLUME_AVG_PERIOD)
 from indicators import (calculate_ma, calculate_rsi, detect_pivot_high,
                         detect_pivot_low, rsi_leaving_extreme,
                         rsi_losing_direction, detect_divergence,
-                        get_trend_1h)
+                        get_trend_1h, volume_confirms)
 from exchange  import get_klines
 from notifier  import send_telegram, msg_signal, msg_signal_cancelled, msg_startup
 
@@ -163,13 +164,15 @@ def run_cycle():
     cond_rsi_extreme = rsi_extreme["from_oversold"]
     cond_rsi_div     = divergence_5m["bullish"]
     cond_rsi_long    = cond_rsi_extreme or cond_rsi_div
+    cond_volume      = volume_confirms(df, lookback=VOLUME_AVG_PERIOD, multiplier=VOLUME_MULTIPLIER)
 
     logger.info(
         f"LONG → trend={cond_trend}({trend_1h}) | pivlow={cond_pivlow}({last_piv_low}) | "
-        f"precio>MA={cond_precio_long} | rsi_OS={cond_rsi_extreme} | rsi_div={cond_rsi_div}"
+        f"precio>MA={cond_precio_long} | rsi_OS={cond_rsi_extreme} | rsi_div={cond_rsi_div} | "
+        f"volumen={cond_volume}"
     )
 
-    if cond_trend and cond_pivlow and cond_precio_long and cond_rsi_long:
+    if cond_trend and cond_pivlow and cond_precio_long and cond_rsi_long and cond_volume:
         risk = close_last - last_piv_low
         if not (0 < risk <= close_last * 0.05):
             logger.info(f"LONG descartado: riesgo fuera de rango ({risk:.2f})")
@@ -194,13 +197,15 @@ def run_cycle():
     cond_rsi_extreme  = rsi_extreme["from_overbought"]
     cond_rsi_div      = divergence_5m["bearish"]
     cond_rsi_short    = cond_rsi_extreme or cond_rsi_div
+    cond_volume       = volume_confirms(df, lookback=VOLUME_AVG_PERIOD, multiplier=VOLUME_MULTIPLIER)
 
     logger.info(
         f"SHORT → trend={cond_trend}({trend_1h}) | pivhigh={cond_pivhigh}({last_piv_high}) | "
-        f"precio<MA={cond_precio_short} | rsi_OB={cond_rsi_extreme} | rsi_div={cond_rsi_div}"
+        f"precio<MA={cond_precio_short} | rsi_OB={cond_rsi_extreme} | rsi_div={cond_rsi_div} | "
+        f"volumen={cond_volume}"
     )
 
-    if cond_trend and cond_pivhigh and cond_precio_short and cond_rsi_short:
+    if cond_trend and cond_pivhigh and cond_precio_short and cond_rsi_short and cond_volume:
         risk = last_piv_high - close_last
         if not (0 < risk <= close_last * 0.05):
             logger.info(f"SHORT descartado: riesgo fuera de rango ({risk:.2f})")
