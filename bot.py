@@ -51,8 +51,15 @@ def _last_pivot_price(df, pivot_series, col):
     return float(df[col].loc[idx[-1]])
 
 
-def _recent_pivot(pivot_series, max_candles=5):
-    """Filtro estricto: El pivote tiene que haberse formado en las últimas 5 velas."""
+def _recent_pivot(pivot_series, max_candles=20):
+    """
+    Busca un pivote confirmado dentro de la ventana histórica.
+    OJO: detect_pivot_high/low necesita PIVOT_LOOKBACK velas hacia
+    adelante para confirmar un pivote, por lo que las últimas
+    PIVOT_LOOKBACK velas del DataFrame nunca pueden ser True.
+    max_candles=20 (con PIVOT_LOOKBACK=5) da ~15 velas reales de
+    tolerancia de antigüedad al pivote (75 min en 5m).
+    """
     return bool(pivot_series.iloc[-max_candles:].any())
 
 
@@ -142,20 +149,31 @@ def run_cycle():
 
     # 5. Evitar duplicados en la misma vela o si hay una orden limit esperando testeo
     candle_id = df.index[-1]
-    if candle_id == last_signal_candle or pending_signal is not None:
+    if candle_id == last_signal_candle:
+        logger.info("Vela ya evaluada, esperando la próxima.")
+        return
+    if pending_signal is not None:
+        logger.info(f"Señal pendiente activa ({pending_signal['direction']}) → no se evalúan nuevas.")
         return
 
     # ── EVALUAR SEÑAL LONG ───────────────────────────────────
     cond_trend       = trend_1h in ("bullish", "neutral")
-    cond_pivlow      = last_piv_low is not None and _recent_pivot(pivot_lows, max_candles=5)
+    cond_pivlow      = last_piv_low is not None and _recent_pivot(pivot_lows, max_candles=20)
     cond_precio_long = close_last > ma_last  # Cierre por encima de la MA12
     cond_rsi_extreme = rsi_extreme["from_oversold"]
     cond_rsi_div     = divergence_5m["bullish"]
     cond_rsi_long    = cond_rsi_extreme or cond_rsi_div
 
+    logger.info(
+        f"LONG → trend={cond_trend}({trend_1h}) | pivlow={cond_pivlow}({last_piv_low}) | "
+        f"precio>MA={cond_precio_long} | rsi_OS={cond_rsi_extreme} | rsi_div={cond_rsi_div}"
+    )
+
     if cond_trend and cond_pivlow and cond_precio_long and cond_rsi_long:
         risk = close_last - last_piv_low
-        if 0 < risk <= close_last * 0.05:
+        if not (0 < risk <= close_last * 0.05):
+            logger.info(f"LONG descartado: riesgo fuera de rango ({risk:.2f})")
+        else:
             sl  = last_piv_low * 0.999
             tp1 = close_last + risk * TP_RATIO
             trigger = "divergencia alcista" if cond_rsi_div else "zona extrema (sobreventa)"
@@ -171,15 +189,22 @@ def run_cycle():
 
     # ── EVALUAR SEÑAL SHORT ──────────────────────────────────
     cond_trend        = trend_1h in ("bearish", "neutral")
-    cond_pivhigh      = last_piv_high is not None and _recent_pivot(pivot_highs, max_candles=5)
+    cond_pivhigh      = last_piv_high is not None and _recent_pivot(pivot_highs, max_candles=20)
     cond_precio_short = close_last < ma_last  # Cierre por debajo de la MA12
     cond_rsi_extreme  = rsi_extreme["from_overbought"]
     cond_rsi_div      = divergence_5m["bearish"]
     cond_rsi_short    = cond_rsi_extreme or cond_rsi_div
 
+    logger.info(
+        f"SHORT → trend={cond_trend}({trend_1h}) | pivhigh={cond_pivhigh}({last_piv_high}) | "
+        f"precio<MA={cond_precio_short} | rsi_OB={cond_rsi_extreme} | rsi_div={cond_rsi_div}"
+    )
+
     if cond_trend and cond_pivhigh and cond_precio_short and cond_rsi_short:
         risk = last_piv_high - close_last
-        if 0 < risk <= close_last * 0.05:
+        if not (0 < risk <= close_last * 0.05):
+            logger.info(f"SHORT descartado: riesgo fuera de rango ({risk:.2f})")
+        else:
             sl  = last_piv_high * 1.001
             tp1 = close_last - risk * TP_RATIO
             trigger = "divergencia bajista" if cond_rsi_div else "zona extrema (sobrecompra)"
