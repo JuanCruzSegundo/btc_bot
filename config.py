@@ -16,11 +16,11 @@ SYMBOL     = "BTCUSDT"
 TIMEFRAME  = "5m"        # vela de entrada
 TF_TREND   = "1h"        # temporalidad de tendencia
 
-# --- Indicadores ---
+# --- Indicadores (Valores Estándar Optimizados) ---
 MA_PERIOD  = 12          # periodo de la media móvil (EMA de Pupu)
 RSI_PERIOD = 14
-RSI_OB     = 60          # overbought (sobrecompra)
-RSI_OS     = 40          # oversold (sobreventa)
+RSI_OB     = 70          # overbought (sobrecompra estricta)
+RSI_OS     = 30          # oversold (sobreventa estricta)
 
 # --- Gestión de la orden ---
 TRADE_USDT      = 100    # capital por operación en USDT
@@ -41,5 +41,4 @@ MAX_CANDLES_TO_TEST_ENTRY = 10   # si en N velas no testea la entrada Y ya tocó
 POLL_SECONDS    = 30     # cada cuántos segundos se verifica el mercado
 
 # --- Proxy para saltar geobloqueo (Railway) ---
-# Dejalo en None si usas las variables de entorno de Railway (HTTP_PROXY / HTTPS_PROXY)
 PROXY = None
