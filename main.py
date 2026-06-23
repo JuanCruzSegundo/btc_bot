@@ -1,5 +1,5 @@
 # ============================================================
-#  main.py  –  Arranca el bot de alertas (Enfoque exclusivo 5m)
+#  main.py  –  Arranca el bot de 1H (5m pausado por decisión del usuario)
 #  CON SOPORTE DE HEALTH CHECK PARA RAILWAY
 # ============================================================
 import logging
@@ -7,7 +7,7 @@ import sys
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-import bot
+import bot_1h
 
 # Configuración básica de logs en consola
 logging.basicConfig(
@@ -46,15 +46,15 @@ def start_health_check_server():
         logger.error(f"Error al iniciar servidor de Health Check: {e}")
 
 if __name__ == "__main__":
-    logger.info("Iniciando bot de alertas de BTC en temporalidad de 5 minutos...")
-    
+    logger.info("Iniciando bot de BTC en temporalidad de 1 HORA (5m pausado)...")
+
     # 1. Levantar servidor en un hilo paralelo ("daemon" para que muera con el principal)
     health_thread = threading.Thread(target=start_health_check_server, daemon=True)
     health_thread.start()
-    
-    # 2. Iniciar el loop de análisis técnico
+
+    # 2. Iniciar el loop de análisis técnico 1H
     try:
-        bot.main_loop()
+        bot_1h.main_loop()
     except KeyboardInterrupt:
         logger.info("Proceso terminado por el usuario.")
     except Exception as e:
