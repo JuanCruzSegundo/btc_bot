@@ -7,7 +7,7 @@ import pandas as pd
 from config import (SYMBOL, POLL_SECONDS, LEVERAGE, TRADE_USDT)
 from indicators import (calculate_ma, detect_reversal_candle,
                         volume_confirms, get_trend_1h_ema)
-from exchange  import get_klines, get_position, get_client, set_leverage, get_symbol_info, round_qty
+from exchange  import get_klines, get_position, get_client, set_leverage, get_symbol_info, round_qty, get_available_balance
 from notifier  import send_telegram, msg_signal_1h, msg_tp1_1h, msg_tp2_1h, msg_sl_hit, msg_startup
 
 import math
@@ -66,7 +66,14 @@ def calc_quantity_1h(entry_price: float) -> float:
     info = get_symbol_info()
     step = float(next(f["stepSize"] for f in info["filters"]
                       if f["filterType"] == "LOT_SIZE"))
-    notional = TRADE_USDT * LEVERAGE
+
+    balance = get_available_balance("USDT")
+    # Margen de seguridad del 2% para evitar rechazo de orden por fees/redondeo
+    usable_balance = balance * 0.98
+    notional = usable_balance * LEVERAGE
+
+    logger.info(f"Balance disponible: {balance:.2f} USDT | Notional a usar (100% x {LEVERAGE}x): {notional:.2f} USDT")
+
     qty = notional / entry_price
     return round_qty(qty, step)
 
