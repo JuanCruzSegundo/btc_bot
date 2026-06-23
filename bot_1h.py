@@ -81,7 +81,7 @@ def place_orders_1h(direction: str, entry: float, sl: float,
     qty_half = round(qty * PARTIAL_1H, 3)
 
     client = get_client()
-    set_leverage()
+    set_leverage(SYMBOL, LEVERAGE)
 
     # Entrada limit
     entry_order = client.new_order(
@@ -171,6 +171,11 @@ def run_cycle_1h():
     # Confirmación: vela reversión alcista + volumen
     trend_long = (last_close > last_ema50) and (last_ema50 > last_ema200)
 
+    logger.info(
+        f"LONG 1H → precio>EMA50={last_close > last_ema50} | "
+        f"EMA50>EMA200={last_ema50 > last_ema200} | trend_long={trend_long}"
+    )
+
     if trend_long:
         prev_lows  = df_closed["low"].iloc[-5:-1]
         near_ema50 = any(low <= last_ema50 * 1.005 for low in prev_lows)
@@ -209,6 +214,11 @@ def run_cycle_1h():
     # Gatillo: precio rebota hasta tocar EMA50 por abajo
     # Confirmación: vela reversión bajista + volumen
     trend_short = (last_close < last_ema50) and (last_ema50 < last_ema200)
+
+    logger.info(
+        f"SHORT 1H → precio<EMA50={last_close < last_ema50} | "
+        f"EMA50<EMA200={last_ema50 < last_ema200} | trend_short={trend_short}"
+    )
 
     if trend_short:
         prev_highs = df_closed["high"].iloc[-5:-1]
