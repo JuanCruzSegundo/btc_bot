@@ -159,3 +159,18 @@ def get_open_orders(symbol: str = SYMBOL) -> list:
     except Exception as e:
         logger.error(f"[Exchange] Error obteniendo órdenes abiertas: {e}")
         return []
+
+
+def get_available_balance(asset: str = "USDT") -> float:
+    """Retorna el balance disponible (availableBalance) de la cuenta para el asset dado."""
+    client = get_client()
+    try:
+        balances = client.balance()
+        for b in balances:
+            if b["asset"] == asset:
+                return float(b["availableBalance"])
+        logger.warning(f"[Exchange] Asset {asset} no encontrado en balance, retornando 0.")
+        return 0.0
+    except Exception as e:
+        logger.error(f"[Exchange] Error obteniendo balance: {e}")
+        return 0.0
