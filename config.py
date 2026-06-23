@@ -24,7 +24,7 @@ RSI_OS     = 40          # oversold
 
 # --- Gestión de la orden ---
 TRADE_USDT      = 100    # capital por operación en USDT
-LEVERAGE        = 5      # apalancamiento (futures)
+LEVERAGE        = 10     # apalancamiento (futures) — usado sobre el 100% del balance disponible
 TP_RATIO        = 1.7    # ratio riesgo/beneficio para el 1er TP (1:1.7, confirmado por el usuario)
 PARTIAL_CLOSE   = 0.75   # porcentaje que se cierra en el 1er TP (75 %)
 
