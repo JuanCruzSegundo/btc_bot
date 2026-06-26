@@ -1,14 +1,14 @@
 # ============================================================
-#  bot_1h.py  –  Bot BTC/USDT en temporalidad 1H (FIXED)
+#  bot_1h.py  –  Bot BTC/USDT 1H con Pullback Flexible y Breaker
 # ============================================================
 import time
 import logging
 import pandas as pd
-from config import (SYMBOL, POLL_SECONDS, LEVERAGE, TRADE_USDT)
-from indicators import (calculate_ma, volume_confirms)
+from config import (SYMBOL, POLL_SECONDS, LEVERAGE, TRADE_USDT, PIVOT_LOOKBACK)
+from indicators import (calculate_ma, volume_confirms, detect_pivot_high, detect_pivot_low)
 from exchange  import (get_klines, get_position, get_client, set_leverage, 
                         get_symbol_info, round_qty, round_price, get_available_balance)
-from notifier  import send_telegram, msg_signal_1h, msg_tp1_1h, msg_tp2_1h, msg_sl_hit, msg_startup
+from notifier  import send_telegram, msg_signal_1h, msg_tp1_1h, msg_tp2_1h, msg_sl_hit
 
 logging.basicConfig(
     level   = logging.INFO,
@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bot_1h")
 
-# ── Ratios 1H ────────────────────────────────────────────────
+# ── Ratios 1H ────────────────────────────────================
 TP1_RATIO_1H = 1.5   # cierra 50% aqui
 TP2_RATIO_1H = 2.5   # cierra 50% restante aqui
 PARTIAL_1H   = 0.50  # 50% en cada TP
@@ -61,6 +61,12 @@ def calc_quantity_1h(entry_price: float) -> float:
     qty = notional / entry_price
     return round_qty(qty, step)
 
+def _last_pivot_price(df, pivot_series, col):
+    idx = pivot_series[pivot_series].index
+    if len(idx) == 0:
+        return None
+    return float(df[col].loc[idx[-1]])
+
 def place_orders_1h(direction: str, entry: float, sl: float, tp1: float, tp2: float):
     side    = "BUY"  if direction == "LONG"  else "SELL"
     sl_side = "SELL" if direction == "LONG"  else "BUY"
@@ -75,22 +81,21 @@ def place_orders_1h(direction: str, entry: float, sl: float, tp1: float, tp2: fl
     client = get_client()
     set_leverage(SYMBOL, LEVERAGE)
 
-    # Entrada a mercado (MARKET) para asegurar ejecucion inmediata al cierre de vela
+    # Entrada a mercado para ejecucion garantizada
     entry_order = client.new_order(
         symbol=SYMBOL, side=side, type="MARKET", quantity=qty
     )
 
-    # Redondear precios segun las reglas de tickSize de Binance
     sl_rounded = round_price(sl, tick)
     tp1_rounded = round_price(tp1, tick)
 
-    # Stop Loss de proteccion total
+    # SL de proteccion total
     client.new_order(
         symbol=SYMBOL, side=sl_side, type="STOP_MARKET",
         stopPrice=sl_rounded, closePosition=True,
     )
 
-    # Take Profit 1 Parcial (50%)
+    # TP1 Parcial
     client.new_order(
         symbol=SYMBOL, side=tp_side, type="TAKE_PROFIT_MARKET",
         stopPrice=tp1_rounded, quantity=qty_half, reduceOnly=True,
@@ -102,7 +107,6 @@ def place_orders_1h(direction: str, entry: float, sl: float, tp1: float, tp2: fl
 def move_sl_to_entry_1h(direction: str, entry: float):
     from exchange import cancel_all_orders, get_client, get_symbol_info
     cancel_all_orders()
-    
     info = get_symbol_info()
     tick = float(next(f["tickSize"] for f in info["filters"] if f["filterType"] == "PRICE_FILTER"))
     entry_rounded = round_price(entry, tick)
@@ -148,59 +152,84 @@ def run_cycle_1h():
     last_ema50  = ema50_c.iloc[-1]
     last_ema200 = ema200_c.iloc[-1]
 
-    logger.info(f"🕵️ Monitoreo 1H -> Precio={last_close:.2f} | EMA50={last_ema50:.2f} | EMA200={last_ema200:.2f}")
+    # Detectar Pivotes estructurales en 1H
+    pivot_highs = detect_pivot_high(df_closed, n=PIVOT_LOOKBACK)
+    pivot_lows  = detect_pivot_low(df_closed, n=PIVOT_LOOKBACK)
+    last_piv_high = _last_pivot_price(df_closed, pivot_highs, "high")
+    last_piv_low  = _last_pivot_price(df_closed, pivot_lows, "low")
+
+    logger.info(
+        f"🕵️ Monitoreo 1H -> Precio={last_close:.2f} | EMA50={last_ema50:.2f} | EMA200={last_ema200:.2f} | "
+        f"PivHigh={last_piv_high} | PivLow={last_piv_low}"
+    )
 
     candle_id = df_closed.index[-1]
     if candle_id == state.last_signal_candle:
         return
 
-    # ── EVALUACIÓN SEÑAL LONG ─────────────────────────────────
+    vol_ok = volume_confirms(df_closed, multiplier=1.5)
+
+    # ── ESTRATEGIA LONG ───────────────────────────────────────
     trend_long = (last_close > last_ema50) and (last_ema50 > last_ema200)
     if trend_long:
+        # GATILLO 1: Pullback Flexible (Ampliamos tolerancia al 3% arriba de EMA50)
         prev_lows  = df_closed["low"].iloc[-5:-1]
         near_ema50 = any(low <= last_ema50 * 1.005 for low in prev_lows)
-        in_zone    = last_ema200 <= last_close <= last_ema50 * 1.01
+        in_zone    = last_ema200 <= last_close <= last_ema50 * 1.03  # <-- MODIFICADO (Antes 1.01)
+        vela_verde = last_close > df_closed["open"].iloc[-1]
+        
+        if (near_ema50 or in_zone) and vela_verde and vol_ok:
+            entry = last_close
+            sl    = df_closed["low"].iloc[-10:].min() * 0.999
+            risk  = entry - sl
+            if 0 < risk <= entry * 0.05:
+                logger.info(f"🟢 GATILLO LONG (PULLBACK 1H) | Entry={entry:.2f}")
+                _open_trade_1h("LONG", entry, sl, entry + risk * TP1_RATIO_1H, entry + risk * TP2_RATIO_1H)
+                state.last_signal_candle = candle_id
+                return
 
-        if near_ema50 or in_zone:
-            vela_verde = last_close > df_closed["open"].iloc[-1]
-            vol_ok     = volume_confirms(df_closed, multiplier=1.5)
+        # GATILLO 2: Breaker (Ruptura del último pivote máximo con volumen)
+        if last_piv_high and last_close > last_piv_high and vol_ok:
+            entry = last_close
+            sl    = last_piv_low if last_piv_low else last_close * 0.98
+            risk  = entry - sl
+            if 0 < risk <= entry * 0.05:
+                logger.info(f"🚀 GATILLO LONG (BREAKER 1H) | Rompió PivHigh={last_piv_high:.2f}")
+                _open_trade_1h("LONG", entry, sl, entry + risk * TP1_RATIO_1H, entry + risk * TP2_RATIO_1H)
+                state.last_signal_candle = candle_id
+                return
 
-            if vela_verde and vol_ok:
-                entry = last_close
-                sl    = df_closed["low"].iloc[-10:].min() * 0.999
-                risk  = entry - sl
-
-                if 0 < risk <= entry * 0.05:
-                    tp1 = entry + risk * TP1_RATIO_1H
-                    tp2 = entry + risk * TP2_RATIO_1H
-                    logger.info(f"🟢 GATILLO LONG 1H | Entry={entry:.2f} SL={sl:.2f}")
-                    _open_trade_1h("LONG", entry, sl, tp1, tp2)
-                    state.last_signal_candle = candle_id
-                    return
-
-    # ── EVALUACIÓN SEÑAL SHORT ────────────────────────────────
+    # ── ESTRATEGIA SHORT ──────────────────────────────────────
     trend_short = (last_close < last_ema50) and (last_ema50 < last_ema200)
     if trend_short:
+        # GATILLO 1: Pullback Flexible (Ampliamos tolerancia al 3% abajo de EMA50)
         prev_highs = df_closed["high"].iloc[-5:-1]
         near_ema50 = any(high >= last_ema50 * 0.995 for high in prev_highs)
-        in_zone    = last_ema50 * 0.99 <= last_close <= last_ema200
+        in_zone    = last_ema50 * 0.97 <= last_close <= last_ema200  # <-- MODIFICADO (Antes 0.99)
+        vela_roja  = last_close < df_closed["open"].iloc[-1]
+        
+        if (near_ema50 or in_zone) and vela_roja and vol_ok:
+            entry = last_close
+            sl    = df_closed["high"].iloc[-10:].max() * 1.001
+            risk  = sl - entry
+            if 0 < risk <= entry * 0.05:
+                logger.info(f"🔴 GATILLO SHORT (PULLBACK 1H) | Entry={entry:.2f}")
+                _open_trade_1h("SHORT", entry, sl, entry - risk * TP1_RATIO_1H, entry - risk * TP2_RATIO_1H)
+                state.last_signal_candle = candle_id
+                return
 
-        if near_ema50 or in_zone:
-            vela_roja = last_close < df_closed["open"].iloc[-1]
-            vol_ok    = volume_confirms(df_closed, multiplier=1.5)
+        # GATILLO 2: Breaker (Ruptura del último pivote mínimo con volumen)
+        if last_piv_low and last_close < last_piv_low and vol_ok:
+            entry = last_close
+            sl    = last_piv_high if last_piv_high else last_close * 1.02
+            risk  = sl - entry
+            if 0 < risk <= entry * 0.05:
+                logger.info(f"🚀 GATILLO SHORT (BREAKER 1H) | Rompió PivLow={last_piv_low:.2f}")
+                _open_trade_1h("SHORT", entry, sl, entry - risk * TP1_RATIO_1H, entry - risk * TP2_RATIO_1H)
+                state.last_signal_candle = candle_id
+                return
 
-            if vela_roja and vol_ok:
-                entry = last_close
-                sl    = df_closed["high"].iloc[-10:].max() * 1.001
-                risk  = sl - entry
-
-                if 0 < risk <= entry * 0.05:
-                    tp1 = entry - risk * TP1_RATIO_1H
-                    tp2 = entry - risk * TP2_RATIO_1H
-                    logger.info(f"🔴 GATILLO SHORT 1H | Entry={entry:.2f} SL={sl:.2f}")
-                    _open_trade_1h("SHORT", entry, sl, tp1, tp2)
-                    state.last_signal_candle = candle_id
-                    return
+    logger.info("Sin señal 1H en este ciclo.")
 
 def _open_trade_1h(direction, entry, sl, tp1, tp2):
     try:
@@ -232,12 +261,10 @@ def _manage_trade_1h(current_price: float):
         if tp1_reached:
             state.tp1_hit = True
             move_sl_to_entry_1h(state.direction, state.entry_price)
-
             qty = calc_quantity_1h(state.entry_price)
             info = get_symbol_info()
             step = float(next(f["stepSize"] for f in info["filters"] if f["filterType"] == "LOT_SIZE"))
             qty_half = round_qty(qty * PARTIAL_1H, step)
-            
             place_tp2_order(state.direction, state.tp2_price, qty_half)
             send_telegram(msg_tp1_1h(SYMBOL, state.direction, state.entry_price, state.tp1_price, state.tp2_price))
 
@@ -245,13 +272,12 @@ def _manage_trade_1h(current_price: float):
         pos_size = abs(float(pos.get("positionAmt", 0)))
         if pos_size < 0.001:
             send_telegram(msg_tp2_1h(SYMBOL, state.direction, state.tp2_price))
-            logger.info("TP2 alcanzado de forma completa. Reseteando estado.")
             state.reset()
 
 def main_loop():
     logger.info("=" * 50)
-    logger.info("Bot BTC/USDT 1H iniciando...")
-    send_telegram(f"🤖 <b>Bot 1H Iniciado Automático</b>\nMonitoreando <b>{SYMBOL}</b>")
+    logger.info("Bot BTC/USDT 1H con Motores Pullback + Breaker activo...")
+    send_telegram(f"🤖 <b>Bot 1H Multi-Gatillo Iniciado</b>\nMonitoreando: <b>{SYMBOL}</b>")
 
     while True:
         try:
@@ -261,7 +287,6 @@ def main_loop():
             break
         except Exception as e:
             logger.error(f"Error inesperado 1H: {e}", exc_info=True)
-
         time.sleep(POLL_SECONDS)
 
 if __name__ == "__main__":
